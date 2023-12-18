@@ -5,7 +5,7 @@ from flask import Flask, request, Response, jsonify
 
 from knn import make_recommendation
 # from knn2 import predict_model_knn2
-from predict_promotions import read_predict, get_all_promotions, data_to_excel, model_x
+from predict_promotions import read_predict, get_all_promotions, data_to_excel, model_x, read_data
 
 from flask_restful import Api
 from flask_cors import CORS
@@ -14,7 +14,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
-from search import search, data_knn
+from search import search_BM25, data_knn
 
 app = Flask(__name__)
 api = Api(app)
@@ -60,7 +60,7 @@ def get_predict_search():
     print(query)
     if query is None:
         return jsonify([])
-    results = search(query)
+    results = search_BM25(query)
     print("results: ", results)
     return jsonify(results)
 
@@ -79,7 +79,12 @@ def run_flask():
 
 
 if __name__ == '__main__':
-    make_recommendation(1)
+    # print("begin data_to_excel")
+    # data_to_excel()
+    # read_data()
+    # model_x()
+    # print("end data_to_excel")
+    # get_all_promotions()
     # data_knn()
     # all_points = np.array([[42, 0],
     #                            [29, 0],

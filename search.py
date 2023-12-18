@@ -33,13 +33,16 @@ def dicttumadoc_dictmadocdodaidoc_dodaitb(doc_vitri_cau_dict):
 
 def RSV_word(n, df, tf, dl, avdt, k=2, b=0.75):
     # n là số văn bản
-    # df là số lần xuất hiện của từ trọng tất cả các tập
+    # df là số văn bản có từ qi
     # tf là số lần xuất hiện của từ trong tập đang xét
     # dl là độ dài vb hiện tại
     # avdt là độ dài tb tất cả vb
     # k và b là các tham số của BM25;
     # k điều khiển tỷ lệ tần số; b chuẩn hóa độ dài tài liệu
-    result = math.log(n / df, 10) * (((k + 1) * tf) / (k * ((1 - b) + (b * dl) / avdt) + tf))
+    idf = math.log((n - df + 0.5) / (df + 0.5) + 1.0)
+    numerator = tf * (k + 1)
+    denominator = tf + k * (1 - b + b * (dl / avdt))
+    result = idf * (numerator / denominator)
     return result
 
 
@@ -66,7 +69,19 @@ def rsv_bm25(doc_vitri_cau_dict, doc_vitridoc_lendoc_dict, tb_lendoc, query_tu_l
                 if tu.lower() == word.lower():
                     tf += 1
             if tf != 0:
-                a = RSV_word(len(doc_vitri_cau_dict), len(listvitri), tf, doc_vitridoc_lendoc_dict[i], tb_lendoc)
+                df = 0
+                for i1, sentence1 in doc_vitri_cau_dict.items():
+                    sentence1 = sentence1.lower()
+                    words1 = sentence1.split()
+                    break_for_1 = 0
+                    for word1 in words1:
+                        if tu == word1:
+                            df += 1
+                            break_for_1 = 1
+                            break
+                    if break_for_1 == 1:
+                        break
+                a = RSV_word(len(doc_vitri_cau_dict), df, tf, doc_vitridoc_lendoc_dict[i], tb_lendoc)
                 c1 += a
                 dict_tu_rsv.append(tu)
                 dict_tu_rsv.append(a)
@@ -76,7 +91,7 @@ def rsv_bm25(doc_vitri_cau_dict, doc_vitridoc_lendoc_dict, tb_lendoc, query_tu_l
     return vitridoc_rsv_dict, vitridoc_tu_dict
 
 
-def run(query, doc_vitri_cau_dict, list_id):
+def run_BM25(query, doc_vitri_cau_dict, list_id):
     # doc1: con co
     # doc2: co be
     # doc_word_list_vitri_dict: {con: [1], co: [1, 2], be: [2]}
@@ -88,43 +103,33 @@ def run(query, doc_vitri_cau_dict, list_id):
     query_tu_list_vitri_dict = dicttulistvitri(query, doc_word_list_vitri_dict)
     vitridoc_rsv_dict, vitridoc_tu_dict = rsv_bm25(doc_vitri_cau_dict, doc_vitridoc_lendoc_dict, tb_lendoc, query_tu_list_vitri_dict)
     vitridoc_rsv_dict = dict(sorted(vitridoc_rsv_dict.items(), key=lambda x: x[1], reverse=True))
-
     for id, rsv in vitridoc_rsv_dict.items():
-        print(id, vitridoc_tu_dict[id], rsv)
         list_id.append(id)
+        print("unitDetailId: ", id, "Độ tương đồng: ", rsv, vitridoc_tu_dict[id])
+
     return list_id, vitridoc_rsv_dict
 
-def search(query):
+
+def search_BM25(query):
     df = pd.read_sql_query('SELECT * FROM PRODUCT', engine)
-    doc_vitri_cau_dict_description = {}
-    doc_vitri_cau_dict_name = {}
+    doc_vitri_cau_dict = {}
     list_id = []
 
     for index, row in df.iterrows():
-        doc_vitri_cau_dict_description[row['PRODUCT_ID']] = row['PRODUCT_DESCRIPTION']
+        doc_vitri_cau_dict[row['PRODUCT_ID']] = row['PRODUCT_DESCRIPTION'] + row['PRODUCT_NAME']
 
-    for index, row in df.iterrows():
-        doc_vitri_cau_dict_name[row['PRODUCT_ID']] = row['PRODUCT_NAME']
+    list_id, vitridoc_rsv_dict = run_BM25(query, doc_vitri_cau_dict, list_id)
 
-    list_id, vitridoc_rsv_dict = run(query, doc_vitri_cau_dict_description, list_id)
-    list_id, vitridoc_rsv_dict = run(query, doc_vitri_cau_dict_name, list_id)
 
-    set_id = set(list_id)
-    return list(set_id)
+    return list_id
 
 
 def data_knn():
     doc_vitri_cau_dict = {}
     list_id = []
-    query = ""
     df = pd.read_sql_query('SET NOCOUNT ON; EXEC data_X_knn', engine)
     for index, row in df.iterrows():
         doc_vitri_cau_dict[row['UNIT_DETAIL_ID']] = row['SPECIFIC']
-
-    # df = f"EXEC data_knn_query @unit_Detail_Id = {unit_detail_id}"
-    # db = pd.read_sql_query(df, engine)
-    # for index, row in db.iterrows():
-    #     query = row['SPECIFIC']
 
     df = pd.read_sql_query('SELECT * FROM FEATURE', engine)
     featureId_specific_dict = {}
@@ -132,16 +137,11 @@ def data_knn():
     for index, row in df.iterrows():
         featureId_specific_dict[row['FEATURE_ID']] = row['SPECIFIC']
         query = row['SPECIFIC']
-        list_id, vitridoc_rsv_dict = run(query, doc_vitri_cau_dict, list_id)
+        list_id, vitridoc_rsv_dict = run_BM25(query, doc_vitri_cau_dict, list_id)
         for vitri, rsv in vitridoc_rsv_dict.items():
-            # print(index, vitri,row['FEATURE_ID'], doc_vitri_cau_dict[vitri], round(rsv))
             sql_command = text("EXEC update_feature @unitDetailId = :unitDetailId, @featureId = :featureId, @point = :point").bindparams(
                 unitDetailId=vitri, featureId=row['FEATURE_ID'], point=round(rsv)
             )
-
-            # Thực hiện câu lệnh
             result = connection.execute(sql_command)
-            # print(result)
         connection.commit()
     connection.close()
-# print(vitridoc_rsv_dict)
